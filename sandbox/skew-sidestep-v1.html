@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skew Sidestep — 4D hyperplane sandbox</title>
+<style>
+  :root{
+    --void:#06080f; --panel:#0c1120d9; --edge:#22304a; --ink:#c9d4e3; --dim:#5f6d84;
+    --ana:#f7931a; --kata:#7a5cff; --ok:#5dd39e; --warn:#ff5470;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:var(--void);color:var(--ink);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif}
+  canvas#scene{display:block;cursor:grab;outline:none}
+  canvas#scene:active{cursor:grabbing}
+  .hud{position:fixed;user-select:none}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;
+    padding:11px 13px;backdrop-filter:blur(6px)}
+  .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+
+  #status{top:14px;left:14px;width:270px}
+  #status h1{font-size:13px;font-weight:600;letter-spacing:.04em;color:var(--ana)}
+  #status .sub{font-size:10.5px;color:var(--dim);margin:2px 0 9px;line-height:1.4}
+  .row{display:flex;justify-content:space-between;gap:12px;font-size:11px;padding:2.5px 0;border-top:1px dotted #1a2437}
+  .row:first-of-type{border-top:0}
+  .row .k{color:var(--dim)} .row .v{color:var(--ink)}
+  .v.ana{color:var(--ana)} .v.kata{color:var(--kata)} .v.ok{color:var(--ok)} .v.warn{color:var(--warn)}
+
+  #gauge{top:14px;right:14px;width:74px;height:300px;display:flex;flex-direction:column;align-items:center;padding:10px 6px}
+  #gauge .lbl{font-size:10px;color:var(--dim);letter-spacing:.06em}
+  #gauge .lbl.ana{color:var(--ana)} #gauge .lbl.kata{color:var(--kata)}
+  #track{position:relative;flex:1;width:6px;margin:8px 0;border-radius:3px;
+    background:linear-gradient(to bottom,var(--ana),#2a3348 50%,var(--kata))}
+  #track .zero{position:absolute;left:-8px;right:-8px;top:50%;height:1px;background:#8896ad}
+  #track .w1{position:absolute;left:-5px;right:-5px;height:1px;background:var(--ana);opacity:.6}
+  #marker{position:absolute;left:50%;width:16px;height:16px;border-radius:50%;background:#fff;
+    border:2px solid var(--void);transform:translate(-50%,-50%);top:50%;transition:top .05s linear}
+  #gauge .val{font-size:13px;color:var(--ink)}
+
+  #steps{bottom:14px;left:14px;width:270px}
+  #steps h2{font-size:10.5px;font-weight:600;color:var(--dim);letter-spacing:.05em;margin-bottom:6px}
+  .step{display:flex;gap:9px;align-items:flex-start;padding:4px 0;border-top:1px dotted #1a2437;font-size:11px}
+  .step:first-of-type{border-top:0}
+  .step .n{width:16px;height:16px;border-radius:50%;border:1px solid var(--edge);flex:none;
+    font-size:9.5px;display:flex;align-items:center;justify-content:center;color:var(--dim);margin-top:1px}
+  .step.active .n{border-color:var(--ana);color:var(--ana)}
+  .step.done .n{background:var(--ok);border-color:var(--ok);color:#06110c}
+  .step .t{color:var(--ink)} .step .d{color:var(--dim);font-size:10px;line-height:1.35}
+  .step.done .t{color:var(--ok)} .step.active .t{color:var(--ana)}
+
+  #mini{bottom:14px;right:14px;width:262px}
+  #mini canvas{display:block;width:236px;height:132px;border:1px solid var(--edge);border-radius:4px;background:#080b14}
+  #mini .cap{font-size:10px;color:var(--dim);margin-top:6px;line-height:1.4}
+
+  #bar{bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center}
+  button{background:#121a2c;border:1px solid var(--edge);color:var(--ink);font:600 11px/1 "Segoe UI",system-ui,sans-serif;
+    padding:9px 13px;border-radius:5px;cursor:pointer;letter-spacing:.02em}
+  button:hover{border-color:var(--ana);background:#182236}
+  button.primary{background:var(--ana);border-color:var(--ana);color:#12100a}
+  button[aria-pressed="true"]{border-color:var(--ana);color:var(--ana)}
+  #keys{font-size:10.5px;color:var(--dim);margin-left:6px;line-height:1.5}
+  #keys b{color:var(--ink);font-weight:600}
+  #toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);font-size:11.5px;color:var(--warn);
+    background:var(--panel);border:1px solid #4a2030;border-radius:5px;padding:7px 12px;opacity:0;transition:opacity .25s;pointer-events:none}
+  @media (max-width:900px){ #mini,#keys{display:none} #steps{width:230px} #status{width:230px} }
+</style>
+</head>
+<body>
+<canvas id="scene" tabindex="0"></canvas>
+
+<div class="hud card" id="status">
+  <h1>SKEW SIDESTEP</h1>
+  <div class="sub">4D sandbox — you see the 3D cross-section of ℝ⁴ at your current W. The wall exists only at W = 0.</div>
+  <div class="row"><span class="k">hyperplane</span><span class="v mono" id="s-plane">W = 0 (base)</span></div>
+  <div class="row"><span class="k">position</span><span class="v mono" id="s-pos">—</span></div>
+  <div class="row"><span class="k">W offset</span><span class="v mono" id="s-woff">0.00</span></div>
+  <div class="row"><span class="k">wall</span><span class="v mono warn" id="s-wall">solid · collision on</span></div>
+  <div class="row"><span class="k">contact</span><span class="v mono" id="s-contact">none</span></div>
+  <div class="row"><span class="k">camera</span><span class="v mono" id="s-cam">third person</span></div>
+</div>
+
+<div class="hud card" id="gauge">
+  <div class="lbl ana">ANA +W</div>
+  <div id="track"><div class="w1" id="w1line"></div><div class="zero"></div><div id="marker"></div></div>
+  <div class="lbl kata">KATA −W</div>
+  <div class="val mono" id="g-val">0.00</div>
+</div>
+
+<div class="hud card" id="steps">
+  <h2>SIDESTEP SEQUENCE</h2>
+  <div id="steplist"></div>
+</div>
+
+<div class="hud card" id="mini">
+  <canvas id="minimap" width="472" height="264"></canvas>
+  <div class="cap">X–W projection (Y, Z collapsed). The wall is the dot at (0, 0). A path at W = W₁ crosses X = 0 without touching it — skew, not parallel.</div>
+</div>
+
+<div class="hud" id="bar">
+  <button class="primary" id="btn-auto">Auto-run sequence</button>
+  <button id="btn-reset">Reset</button>
+  <button id="btn-cam" aria-pressed="false">First person (V)</button>
+  <div id="keys"><b>W/S</b> ±X · <b>A/D</b> ±Y · <b>Q/E</b> −W/+W · drag to orbit</div>
+</div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+/* =====================================================================
+   SKEW SIDESTEP — a 4D sandbox rendered by hyperplane cross-section.
+
+   Coordinates follow the spec: X forward, Y lateral, Z up, W = Ana/Kata.
+   Three.js is Y-up, so a render mapping is applied at draw time only:
+       render(x, y, z) = (x, z, y)
+   All physics, collision and state logic live in spec coordinates.
+
+   Cross-section rule: every object carries a W-extent [wMin, wMax].
+   It is drawn (and collides) only when the viewer's W lies inside it.
+   Outside, it may draw a ghost projection so you can see where the
+   object *would* be if you were in its hyperplane.
+   ===================================================================== */
+
+const SPEC = {
+  W1: 3.0,            // target sidestep hyperplane
+  W_EPS: 0.05,        // wall's presence along W is ±eps (see notes: not literally zero)
+  WALL_HALF_X: 0.2,   // wall half-thickness in X
+  VIEWER_R: 0.3,      // viewer radius → halts at X = −0.5 exactly
+  WALL_Y: 12,         // wall spans Y ∈ [−12, 12] (beyond world bounds — no way around)
+  WALL_Z: 3,          // wall spans Z ∈ [0, 3]
+  PATH: [-10, 10],
+  BOUNDS: { x:[-12,12], y:[-11,11], w:[-5,5] },
+  SPEED: 4.0,
+  W_SPEED: 2.5,
+  START: { x:-9, y:0, z:0, w:0 },
+};
+const HALT_X = SPEC.WALL_HALF_X + SPEC.VIEWER_R;   // 0.5
+
+const viewer = { ...SPEC.START };
+let contact = null;           // 'left' | 'right' | 'w-blocked' | null (this frame)
+let contactSeen = false;      // has the wall stopped us at least once
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const inSlab = w => Math.abs(w) <= SPEC.W_EPS;
+
+/* ---------- scene ---------- */
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x06080f, 0.02);
+const camera = new THREE.PerspectiveCamera(58, innerWidth/innerHeight, 0.1, 200);
+
+scene.add(new THREE.AmbientLight(0x8a9bc0, 0.75));
+const sun = new THREE.DirectionalLight(0xfff1d6, 0.9); sun.position.set(6, 12, -4); scene.add(sun);
+const rim = new THREE.PointLight(0x7a5cff, 0.5, 50); rim.position.set(-8, 4, 8); scene.add(rim);
+
+const R = (x,y,z) => new THREE.Vector3(x, z, y);   // spec → render
+
+/* floor: a 3-flat (Z = 0 for all X, Y, W) — present in every hyperplane */
+{
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(26, 24),
+    new THREE.MeshStandardMaterial({color:0x0e1424, roughness:0.95, metalness:0}));
+  floor.rotation.x = -Math.PI/2; floor.position.y = -0.005; scene.add(floor);
+  const grid = new THREE.GridHelper(26, 26, 0x1e2a44, 0x141d31); grid.position.y = 0.0; scene.add(grid);
+}
+
+/* hyper-objects: [mesh, ghost, W-extent] */
+const hyperObjects = [];
+function addHyper(o){ hyperObjects.push(o); if (o.mesh) scene.add(o.mesh); if (o.ghost) scene.add(o.ghost); return o; }
+
+/* main path: 1D line along X at (Y=0, Z=0, W=0) */
+{
+  const g = new THREE.BufferGeometry().setFromPoints([R(SPEC.PATH[0],0,0.02), R(SPEC.PATH[1],0,0.02)]);
+  const mesh = new THREE.Line(g, new THREE.LineBasicMaterial({color:0xf7931a}));
+  const ghost = new THREE.Line(g.clone(), new THREE.LineDashedMaterial({color:0xf7931a, dashSize:0.3, gapSize:0.25, transparent:true, opacity:0.35}));
+  ghost.computeLineDistances();
+  addHyper({name:'path', mesh, ghost, wMin:-SPEC.W_EPS, wMax:SPEC.W_EPS});
+}
+
+/* the wall: 2-plane at X=0 spanning Y,Z, bound to W=0 (given ±eps presence in W) */
+const wallObj = (() => {
+  const geo = new THREE.BoxGeometry(SPEC.WALL_HALF_X*2, SPEC.WALL_Z, SPEC.WALL_Y*2);  // render: x, up, lateral
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x8d2f3f, emissive:0x3a0f18, roughness:0.55, metalness:0.1}));
+  mesh.position.set(0, SPEC.WALL_Z/2, 0);
+  const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({color:0xff5470, transparent:true, opacity:0.55}));
+  ghost.position.copy(mesh.position);
+  // ghost cross-hatch so it reads as "projected from another hyperplane"
+  const hatchPts = [];
+  for (let y=-SPEC.WALL_Y; y<=SPEC.WALL_Y; y+=2){ hatchPts.push(R(0,y,0), R(0,y,SPEC.WALL_Z)); }
+  const hatch = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(hatchPts),
+    new THREE.LineBasicMaterial({color:0xff5470, transparent:true, opacity:0.18}));
+  const ghostGroup = new THREE.Group(); ghostGroup.add(ghost, hatch);
+  return addHyper({name:'wall', mesh, ghost:ghostGroup, wMin:-SPEC.W_EPS, wMax:SPEC.W_EPS});
+})();
+
+/* W₁ hyperplane marker: a faint translucent sheet drawn where X=0 at W=W₁ — visible only there,
+   so the viewer sees the *absence* of the wall is not an absence of space */
+{
+  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(SPEC.WALL_Y*2, SPEC.WALL_Z),
+    new THREE.MeshBasicMaterial({color:0xf7931a, transparent:true, opacity:0.06, side:THREE.DoubleSide, depthWrite:false}));
+  sheet.rotation.y = Math.PI/2; sheet.position.set(0, SPEC.WALL_Z/2, 0);
+  addHyper({name:'w1-sheet', mesh:sheet, ghost:null, wMin:SPEC.W1-0.35, wMax:SPEC.W1+0.35});
+}
+
+/* landmarks with different W-extents — they appear/disappear as you sidestep (see notes) */
+function pillar(x, y, color, wMin, wMax, name){
+  const geo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 12);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color, roughness:0.6}));
+  mesh.position.copy(R(x, y, 1.1));
+  const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color, transparent:true, opacity:0.22}));
+  ghost.position.copy(mesh.position);
+  return addHyper({name, mesh, ghost, wMin, wMax});
+}
+pillar(-5,  4.5, 0x7a5cff, -6, -1.5, 'kata pillar');
+pillar( 5, -4.5, 0xf7931a,  1.5, 6, 'ana pillar');
+pillar( 3,  5.5, 0xcfd8e3, -0.6, 0.6, 'base pillar');
+
+/* viewer avatar */
+const avatar = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.SphereGeometry(SPEC.VIEWER_R, 20, 16),
+    new THREE.MeshStandardMaterial({color:0xe8eef7, emissive:0x223047, roughness:0.35}));
+  body.position.y = SPEC.VIEWER_R;
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 10), new THREE.MeshBasicMaterial({color:0xf7931a}));
+  nose.rotation.z = -Math.PI/2; nose.position.set(SPEC.VIEWER_R+0.12, SPEC.VIEWER_R, 0);
+  avatar.add(body, nose);
+  scene.add(avatar);
+}
+
+/* 4D trail — colored by W so history along the hidden axis is visible in-slice */
+const TRAIL_MAX = 2400;
+const trailPos = new Float32Array(TRAIL_MAX*3), trailCol = new Float32Array(TRAIL_MAX*3);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3));
+trailGeo.setDrawRange(0, 0);
+scene.add(new THREE.Line(trailGeo, new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.85})));
+const trail4 = [];   // spec-coordinate history for the minimap
+const cAna = new THREE.Color(0xf7931a), cKata = new THREE.Color(0x7a5cff), cZero = new THREE.Color(0xcfd8e3);
+function trailColor(w){ const t = Math.min(1, Math.abs(w)/SPEC.BOUNDS.w[1]); return cZero.clone().lerp(w>=0?cAna:cKata, t); }
+function pushTrail(){
+  const last = trail4[trail4.length-1];
+  if (last && Math.hypot(last.x-viewer.x, last.y-viewer.y, last.w-viewer.w) < 0.06) return;
+  if (trail4.length >= TRAIL_MAX) trail4.shift();
+  trail4.push({x:viewer.x, y:viewer.y, z:viewer.z, w:viewer.w});
+  for (let i=0;i<trail4.length;i++){
+    const p = trail4[i], r = R(p.x, p.y, p.z + 0.06), c = trailColor(p.w);
+    trailPos[i*3]=r.x; trailPos[i*3+1]=r.y; trailPos[i*3+2]=r.z;
+    trailCol[i*3]=c.r; trailCol[i*3+1]=c.g; trailCol[i*3+2]=c.b;
+  }
+  trailGeo.setDrawRange(0, trail4.length);
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+}
+
+/* ---------- input ---------- */
+const keys = {};
+const virt = {};   // autopilot's virtual keys
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+  keys[k] = true;
+  if (k === 'v' && !e.repeat) toggleCam();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+const down = (...ks) => ks.some(k => keys[k] || virt[k]);
+
+/* ---------- camera ---------- */
+const cam = { mode:'third', theta:Math.PI, phi:1.05, r:9, yaw:0, dragging:false, px:0, py:0 };
+canvas.addEventListener('pointerdown', e => { cam.dragging=true; cam.px=e.clientX; cam.py=e.clientY; canvas.focus(); });
+addEventListener('pointerup', () => cam.dragging=false);
+addEventListener('pointermove', e => {
+  if (!cam.dragging) return;
+  const dx = e.clientX-cam.px, dy = e.clientY-cam.py; cam.px=e.clientX; cam.py=e.clientY;
+  if (cam.mode==='third'){ cam.theta += dx*0.005; cam.phi = clamp(cam.phi + dy*0.005, 0.2, Math.PI/2-0.05); }
+  else { cam.yaw -= dx*0.004; }
+});
+addEventListener('wheel', e => { if (cam.mode==='third') cam.r = clamp(cam.r + e.deltaY*0.01, 3, 24); }, {passive:true});
+function toggleCam(){
+  cam.mode = cam.mode==='third' ? 'first' : 'third';
+  document.getElementById('btn-cam').setAttribute('aria-pressed', cam.mode==='first');
+  document.getElementById('s-cam').textContent = cam.mode==='third' ? 'third person' : 'first person';
+}
+document.getElementById('btn-cam').onclick = toggleCam;
+function updateCamera(){
+  const a = R(viewer.x, viewer.y, viewer.z);
+  if (cam.mode==='third'){
+    camera.position.set(
+      a.x + cam.r*Math.sin(cam.phi)*Math.cos(cam.theta),
+      a.y + cam.r*Math.cos(cam.phi) + 0.4,
+      a.z + cam.r*Math.sin(cam.phi)*Math.sin(cam.theta));
+    camera.lookAt(a.x, a.y+0.6, a.z);
+    avatar.visible = true;
+  } else {
+    camera.position.set(a.x, a.y + 1.6, a.z);
+    camera.lookAt(a.x + Math.cos(cam.yaw), a.y + 1.5, a.z + Math.sin(cam.yaw));
+    avatar.visible = false;
+  }
+}
+
+/* ---------- movement + 4D collision ---------- */
+function step(dt){
+  contact = null;
+  let dx = 0, dy = 0, dw = 0;
+  if (down('w','arrowup'))    dx += 1;
+  if (down('s','arrowdown'))  dx -= 1;
+  if (down('a','arrowleft'))  dy += 1;
+  if (down('d','arrowright')) dy -= 1;
+  if (down('e')) dw += 1;
+  if (down('q')) dw -= 1;
+  const len = Math.hypot(dx, dy); if (len){ dx/=len; dy/=len; }
+
+  // --- W translation first: the wall also blocks *re-entering* W=0 if you'd be inside it
+  const insideWallX = Math.abs(viewer.x) < HALT_X && viewer.z < SPEC.WALL_Z;
+  if (dw){
+    let nw = clamp(viewer.w + dw*SPEC.W_SPEED*dt, SPEC.BOUNDS.w[0], SPEC.BOUNDS.w[1]);
+    const wouldEnterSlab = !inSlab(viewer.w) && inSlab(nw);
+    if (wouldEnterSlab && insideWallX){
+      nw = Math.sign(viewer.w) * (SPEC.W_EPS + 0.001);
+      contact = 'w-blocked';
+      toast('Cannot return to W = 0 here — the wall occupies X ≈ 0 in that hyperplane.');
+    }
+    viewer.w = nw;
+  } else if (Math.abs(viewer.w) < 0.09 && viewer.w !== 0) {
+    // gentle snap onto the base hyperplane when released nearby (see notes) — never into the wall
+    if (insideWallX) viewer.w = Math.sign(viewer.w) * (SPEC.W_EPS + 0.001);
+    else viewer.w = 0;
+  }
+
+  // --- 3D motion within the current hyperplane
+  let nx = clamp(viewer.x + dx*SPEC.SPEED*dt, SPEC.BOUNDS.x[0], SPEC.BOUNDS.x[1]);
+  let ny = clamp(viewer.y + dy*SPEC.SPEED*dt, SPEC.BOUNDS.y[0], SPEC.BOUNDS.y[1]);
+  if (inSlab(viewer.w) && viewer.z < SPEC.WALL_Z){
+    if (viewer.x <= -HALT_X && nx > -HALT_X){ nx = -HALT_X; contact = 'left'; contactSeen = true; }
+    else if (viewer.x >= HALT_X && nx < HALT_X){ nx = HALT_X; contact = 'right'; contactSeen = true; }
+  }
+  viewer.x = nx; viewer.y = ny;
+  avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
+  pushTrail();
+}
+
+/* ---------- cross-section visibility ---------- */
+function updateSlice(){
+  for (const o of hyperObjects){
+    const inside = viewer.w >= o.wMin && viewer.w <= o.wMax;
+    if (o.mesh)  o.mesh.visible  = inside;
+    if (o.ghost) o.ghost.visible = !inside;
+  }
+  // fog + tint ∝ |W|; hue says which way (Ana warm, Kata cool)
+  const t = Math.min(1, Math.abs(viewer.w) / SPEC.BOUNDS.w[1]);
+  const base = new THREE.Color(0x06080f);
+  const tint = viewer.w >= 0 ? new THREE.Color(0x2a1d0a) : new THREE.Color(0x160f2e);
+  const bg = base.lerp(tint, t*0.9);
+  renderer.setClearColor(bg); scene.fog.color.copy(bg);
+  scene.fog.density = 0.02 + 0.055*t;
+}
+
+/* ---------- state machine: the six-step maneuver ---------- */
+const steps = [
+  { id:'approach', t:'Approach at W = 0',        d:'Move +X toward the wall at X = 0',
+    test: () => viewer.x > SPEC.START.x + 1.5 && inSlab(viewer.w) },
+  { id:'blocked',  t:'Blocked at X = −0.5',      d:'Rigid collision halts 3D progress',
+    test: () => contactSeen && inSlab(viewer.w) && Math.abs(viewer.x + HALT_X) < 0.02 },
+  { id:'sidestep', t:'4D sidestep (+W)',         d:`Translate along W to W₁ = ${SPEC.W1.toFixed(1)}`,
+    test: () => viewer.w >= SPEC.W1 - 0.25 },
+  { id:'bypass',   t:'Skew bypass at W = W₁',    d:'Walk past X = 0 to X = +2.0, no collision',
+    test: () => !inSlab(viewer.w) && viewer.x >= 2.0 },
+  { id:'return',   t:'Return sidestep (−W)',     d:'Translate back to W = 0 beyond the wall',
+    test: () => inSlab(viewer.w) && viewer.x > HALT_X },
+  { id:'continue', t:'Continuation',             d:'Resume +X on the far side of the wall',
+    test: () => inSlab(viewer.w) && viewer.x >= 5.0 },
+];
+let stepIdx = 0;
+const stepEls = [];
+{
+  const list = document.getElementById('steplist');
+  steps.forEach((s,i) => {
+    const el = document.createElement('div'); el.className = 'step';
+    el.innerHTML = `<div class="n">${i+1}</div><div><div class="t">${s.t}</div><div class="d">${s.d}</div></div>`;
+    list.appendChild(el); stepEls.push(el);
+  });
+}
+function updateSteps(){
+  if (stepIdx < steps.length && steps[stepIdx].test()) stepIdx++;
+  stepEls.forEach((el,i) => {
+    el.classList.toggle('done', i < stepIdx);
+    el.classList.toggle('active', i === stepIdx);
+  });
+}
+function resetAll(){
+  Object.assign(viewer, SPEC.START);
+  contactSeen = false; stepIdx = 0; trail4.length = 0; trailGeo.setDrawRange(0,0);
+  auto.on = false; auto.phase = 0; for (const k in virt) virt[k] = false;
+  document.getElementById('btn-auto').textContent = 'Auto-run sequence';
+  avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
+}
+document.getElementById('btn-reset').onclick = resetAll;
+
+/* ---------- autopilot: drives virtual keys through the spec sequence ---------- */
+const auto = { on:false, phase:0, hold:0 };
+const phases = [
+  { run:()=>{ virt.w=true; },  until:()=> contact==='left' },                     // approach until blocked
+  { run:()=>{ virt.w=false; auto.hold+=1; }, until:()=> auto.hold>40 },            // dwell on the wall a moment
+  { run:()=>{ virt.e=true; },  until:()=> viewer.w >= SPEC.W1, then:()=>{ viewer.w=SPEC.W1; } },
+  { run:()=>{ virt.e=false; virt.w=true; viewer.w=SPEC.W1; }, until:()=> viewer.x >= 2.0 },
+  { run:()=>{ virt.w=false; virt.q=true; }, until:()=> inSlab(viewer.w), then:()=>{ viewer.w=0; } },
+  { run:()=>{ virt.q=false; virt.w=true; viewer.w=0; }, until:()=> viewer.x >= 6.0, then:()=>{ virt.w=false; auto.on=false;
+      document.getElementById('btn-auto').textContent='Auto-run sequence'; } },
+];
+function runAuto(){
+  if (!auto.on) return;
+  const p = phases[auto.phase]; if (!p) { auto.on=false; return; }
+  p.run();
+  if (p.until()){ if (p.then) p.then(); auto.phase++; auto.hold=0; }
+}
+document.getElementById('btn-auto').onclick = e => {
+  if (auto.on){ auto.on=false; for (const k in virt) virt[k]=false; e.target.textContent='Auto-run sequence'; return; }
+  resetAll(); auto.on = true; e.target.textContent = 'Stop auto-run';
+};
+
+/* ---------- HUD ---------- */
+const $ = id => document.getElementById(id);
+const marker = $('marker'), w1line = $('w1line');
+w1line.style.top = (50 - (SPEC.W1/SPEC.BOUNDS.w[1])*50) + '%';
+let toastT = 0;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.opacity=1; toastT=2.2; }
+function updateHUD(dt){
+  const w = viewer.w;
+  const pct = 50 - (w/SPEC.BOUNDS.w[1])*50;
+  marker.style.top = pct + '%';
+  marker.style.background = w>SPEC.W_EPS ? '#f7931a' : w<-SPEC.W_EPS ? '#7a5cff' : '#ffffff';
+  $('g-val').textContent = (w>=0?'+':'') + w.toFixed(2);
+  $('s-pos').textContent = `${viewer.x.toFixed(2)}, ${viewer.y.toFixed(2)}, ${viewer.z.toFixed(2)}, ${w.toFixed(2)}`;
+  $('s-woff').textContent = Math.abs(w).toFixed(2) + (w>0?' ana':w<0?' kata':'');
+  const plane = $('s-plane');
+  if (inSlab(w)) { plane.textContent = 'W = 0 (base)'; plane.className='v mono'; }
+  else { plane.textContent = `W = ${w.toFixed(2)} (parallel)`; plane.className = 'v mono ' + (w>0?'ana':'kata'); }
+  const wall = $('s-wall');
+  if (inSlab(w)) { wall.textContent='solid · collision on'; wall.className='v mono warn'; }
+  else { wall.textContent='absent · ghost only'; wall.className='v mono ok'; }
+  $('s-contact').textContent = contact ? (contact==='w-blocked' ? 'W-return blocked' : `wall (${contact})`) : 'none';
+  if (toastT > 0){ toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
+}
+
+/* ---------- X–W minimap ---------- */
+const mm = $('minimap').getContext('2d');
+function drawMini(){
+  const W = mm.canvas.width, H = mm.canvas.height;
+  const mx = x => (x - SPEC.BOUNDS.x[0]) / (SPEC.BOUNDS.x[1]-SPEC.BOUNDS.x[0]) * (W-24) + 12;
+  const mw = w => H/2 - (w / SPEC.BOUNDS.w[1]) * (H/2 - 14);
+  mm.clearRect(0,0,W,H);
+  // grid & axes
+  mm.strokeStyle = '#141d31'; mm.lineWidth = 1;
+  for (let x=-12; x<=12; x+=2){ mm.beginPath(); mm.moveTo(mx(x), 8); mm.lineTo(mx(x), H-8); mm.stroke(); }
+  for (let w=-5; w<=5; w+=1){ mm.beginPath(); mm.moveTo(12, mw(w)); mm.lineTo(W-12, mw(w)); mm.stroke(); }
+  mm.strokeStyle = '#3a4a66'; mm.beginPath(); mm.moveTo(12, mw(0)); mm.lineTo(W-12, mw(0)); mm.stroke();
+  mm.fillStyle = '#5f6d84'; mm.font = '18px ui-monospace, Consolas, monospace';
+  mm.fillText('W = 0', 16, mw(0)-6);
+  mm.fillStyle = '#f7931a'; mm.fillText('+W ana', 16, 24);
+  mm.fillStyle = '#7a5cff'; mm.fillText('−W kata', 16, H-10);
+  mm.fillStyle = '#5f6d84'; mm.fillText('X →', W-52, mw(0)+22);
+  // W1 line
+  mm.strokeStyle = 'rgba(247,147,26,0.35)'; mm.setLineDash([6,6]); mm.beginPath(); mm.moveTo(12, mw(SPEC.W1)); mm.lineTo(W-12, mw(SPEC.W1)); mm.stroke(); mm.setLineDash([]);
+  // path (w=0, x -10..10)
+  mm.strokeStyle = 'rgba(247,147,26,0.8)'; mm.lineWidth = 3; mm.beginPath(); mm.moveTo(mx(-10), mw(0)); mm.lineTo(mx(10), mw(0)); mm.stroke();
+  // wall: x ∈ [−0.2, 0.2], w ∈ [−eps, eps] — a dot in this projection (Y, Z span is invisible here)
+  mm.fillStyle = '#ff5470';
+  const wx0 = mx(-SPEC.WALL_HALF_X), wx1 = mx(SPEC.WALL_HALF_X), wy0 = mw(SPEC.W_EPS), wy1 = mw(-SPEC.W_EPS);
+  mm.fillRect(wx0-2, wy0-2, (wx1-wx0)+4, (wy1-wy0)+4);
+  mm.fillStyle = '#ff8fa3'; mm.fillText('wall', wx1+8, wy1+18);
+  // trail
+  if (trail4.length > 1){
+    mm.lineWidth = 3;
+    for (let i=1;i<trail4.length;i++){
+      const a = trail4[i-1], b = trail4[i], c = trailColor(b.w);
+      mm.strokeStyle = `rgb(${(c.r*255)|0},${(c.g*255)|0},${(c.b*255)|0})`;
+      mm.beginPath(); mm.moveTo(mx(a.x), mw(a.w)); mm.lineTo(mx(b.x), mw(b.w)); mm.stroke();
+    }
+  }
+  // viewer
+  mm.fillStyle = '#ffffff'; mm.beginPath(); mm.arc(mx(viewer.x), mw(viewer.w), 6, 0, Math.PI*2); mm.fill();
+}
+
+/* ---------- loop ---------- */
+const clock = new THREE.Clock();
+avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  runAuto();
+  step(dt);
+  updateSlice();
+  updateSteps();
+  updateCamera();
+  updateHUD(dt);
+  drawMini();
+  renderer.render(scene, camera);
+}
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+canvas.focus();
+animate();
+</script>
+</body>
+</html>
