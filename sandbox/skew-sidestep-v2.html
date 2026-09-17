@@ -106,6 +106,7 @@
 <div id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="vendor/GLTFLoader.js"></script>
 <script>
 'use strict';
 /* =====================================================================
@@ -211,15 +212,55 @@ pillar(-5,  4.5, 0x7a5cff, -6.0, -1.5, 'kata pillar');
 pillar( 5, -4.5, 0xf7931a,  1.5,  6.0, 'ana pillar');
 pillar( 3,  5.5, 0xcfd8e3, -0.6,  0.6, 'base pillar');
 
-/* §3.6 avatar */
+/* §3.6 avatar — Soldier GLB from box3d-net-demo (assets/Soldier.glb). Collision radius is unchanged (0.3).
+   The sphere is a fallback shown only until the model loads (or if it can't, e.g. opened via file://). */
 const avatar = new THREE.Group();
+scene.add(avatar);
+const fallback = new THREE.Group();
 {
   const body = new THREE.Mesh(new THREE.SphereGeometry(SPEC.VIEWER_R, 20, 16),
     new THREE.MeshStandardMaterial({color:0xe8eef7, emissive:0x223047, roughness:0.35}));
   body.position.y = SPEC.VIEWER_R;
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 10), new THREE.MeshBasicMaterial({color:0xf7931a}));
   nose.rotation.z = -Math.PI/2; nose.position.set(SPEC.VIEWER_R+0.12, SPEC.VIEWER_R, 0);
-  avatar.add(body, nose); scene.add(avatar);
+  fallback.add(body, nose); avatar.add(fallback);
+}
+const soldier = { model:null, mixer:null, idle:null, walk:null, current:null, yaw:0 };
+const MODEL_FACES_NEG_Z = true;   // Soldier.glb faces −Z at rest; flip if it walks backwards
+function facingYaw(fx, fz){ return MODEL_FACES_NEG_Z ? Math.atan2(-fx, -fz) : Math.atan2(fx, fz); }
+soldier.yaw = facingYaw(1, 0);    // spawn facing +X
+if (THREE.GLTFLoader){
+  new THREE.GLTFLoader().load('assets/Soldier.glb', gltf => {
+    const m = gltf.scene;
+    m.traverse(o => { if (o.isMesh){ o.frustumCulled = false; } });
+    m.rotation.y = soldier.yaw;
+    avatar.remove(fallback); avatar.add(m);
+    soldier.model = m;
+    soldier.mixer = new THREE.AnimationMixer(m);
+    const clip = n => THREE.AnimationClip.findByName(gltf.animations, n);
+    soldier.idle = soldier.mixer.clipAction(clip('Idle'));
+    soldier.walk = soldier.mixer.clipAction(clip('Walk'));
+    soldier.walk.timeScale = SPEC.SPEED / 1.4;   // Walk clip is ~1.4 u/s at 1×
+    soldier.idle.play(); soldier.current = soldier.idle;
+  }, undefined, err => console.warn('Soldier.glb not loaded — using fallback avatar', err));
+}
+let moveVec = { x:0, y:0 };  // spec-coordinate motion this frame (for facing + gait)
+function updateSoldier(dt){
+  if (!soldier.model) return;
+  const moving = (moveVec.x || moveVec.y) !== 0;
+  if (moving){
+    const f = R(moveVec.x, moveVec.y, 0);          // spec → render
+    soldier.yaw = facingYaw(f.x, f.z);
+  }
+  // shortest-path turn toward the target yaw
+  let d = soldier.yaw - soldier.model.rotation.y;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  soldier.model.rotation.y += d * Math.min(1, dt*12);
+  const want = moving ? soldier.walk : soldier.idle;
+  if (want !== soldier.current){
+    want.reset().play(); soldier.current.crossFadeTo(want, 0.18, false); soldier.current = want;
+  }
+  soldier.mixer.update(dt);
 }
 
 /* §3.6 4D trail — a floor ribbon (WebGL ignores line width; a ribbon guarantees on-screen width) */
@@ -332,6 +373,7 @@ function step(dt){
     if (viewer.x <= -HALT_X && nx > -HALT_X){ nx = -HALT_X; contact = 'left'; contactSeen = true; }
     else if (viewer.x >= HALT_X && nx < HALT_X){ nx = HALT_X; contact = 'right'; contactSeen = true; }
   }
+  moveVec.x = nx - viewer.x; moveVec.y = ny - viewer.y;
   viewer.x = nx; viewer.y = ny;
   avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
   pushTrail();
@@ -473,7 +515,7 @@ avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-  runAuto(); step(dt); updateSlice(); updateSteps(); updateCamera(); updateHUD(dt); drawMini();
+  runAuto(); step(dt); updateSoldier(dt); updateSlice(); updateSteps(); updateCamera(); updateHUD(dt); drawMini();
   renderer.render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
