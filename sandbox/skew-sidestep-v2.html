@@ -55,7 +55,7 @@
 
   #bar{bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center}
   button{background:#121a2c;border:1px solid var(--edge);color:var(--ink);font:600 11px/1 "Segoe UI",system-ui,sans-serif;
-    padding:9px 13px;border-radius:5px;cursor:pointer;letter-spacing:.02em}
+    padding:9px 13px;border-radius:5px;cursor:pointer;letter-spacing:.02em;white-space:nowrap}
   button:hover{border-color:var(--ana);background:#182236}
   button.primary{background:var(--ana);border-color:var(--ana);color:#12100a}
   button[aria-pressed="true"]{border-color:var(--ana);color:var(--ana)}
@@ -63,6 +63,13 @@
   #keys b{color:var(--ink);font-weight:600}
   #toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);font-size:11.5px;color:var(--warn);
     background:var(--panel);border:1px solid #4a2030;border-radius:5px;padding:7px 12px;opacity:0;transition:opacity .25s;pointer-events:none}
+  #paused{position:fixed;top:22%;left:50%;transform:translateX(-50%);pointer-events:none;
+    font-size:12px;letter-spacing:.08em;color:var(--ink);background:var(--panel);border:1px solid var(--ana);
+    border-radius:6px;padding:10px 16px;text-align:center;opacity:0;transition:opacity .15s}
+  #paused b{display:block;color:var(--ana);font-size:14px;letter-spacing:.14em;margin-bottom:3px}
+  #paused span{color:var(--dim);font-size:10.5px;letter-spacing:.02em}
+  body.is-paused #paused{opacity:1}
+  body.is-paused canvas#scene{filter:saturate(.55) brightness(.8)}
   @media (max-width:900px){ #mini,#keys{display:none} #steps{width:230px} #status{width:230px} }
 </style>
 </head>
@@ -101,9 +108,11 @@
   <button class="primary" id="btn-auto">Auto-run sequence</button>
   <button id="btn-reset">Reset</button>
   <button id="btn-cam" aria-pressed="false">First person (V)</button>
-  <div id="keys"><b>W/S</b> ±X · <b>A/D</b> ±Y · <b>Q/E</b> −W/+W · drag to orbit</div>
+  <button id="btn-pause" aria-pressed="false">Pause (P)</button>
+  <div id="keys"><b>W/S</b> ±X · <b>A/D</b> ±Y · <b>Q/E</b> −W/+W · <b>P</b> pause · drag to orbit</div>
 </div>
 <div id="toast"></div>
+<div id="paused" role="status" aria-live="polite"><b>PAUSED</b><span>P to resume · drag to orbit the frozen slice</span></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="vendor/GLTFLoader.js"></script>
@@ -306,8 +315,26 @@ addEventListener('keydown', e => {
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
   keys[k] = true;
   if (k === 'v' && !e.repeat) toggleCam();
+  if (k === 'p' && !e.repeat) setPaused(!paused);
+  if (k === 'escape' && !e.repeat) setPaused(true);
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+/* ---------- pause ----------
+   Freezes the simulation: movement, W-translation, autopilot, soldier animation,
+   trail and checklist. Rendering, camera orbit/zoom and the V toggle stay live,
+   so the frozen cross-section can be inspected from any angle. */
+let paused = false;
+function setPaused(p){
+  paused = p;
+  document.body.classList.toggle('is-paused', p);
+  const b = document.getElementById('btn-pause');
+  b.setAttribute('aria-pressed', p);
+  b.textContent = p ? 'Resume (P)' : 'Pause (P)';
+}
+document.getElementById('btn-pause').onclick = () => setPaused(!paused);
+// Losing focus drops keyup events, so held keys would stick — pause and release them instead.
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; setPaused(true); });
 const down = (...ks) => ks.some(k => keys[k] || virt[k]);
 
 /* ---------- camera ---------- */
@@ -449,7 +476,7 @@ function runAuto(){
 }
 document.getElementById('btn-auto').onclick = e => {
   if (auto.on){ auto.on=false; for (const k in virt) virt[k]=false; e.target.textContent='Auto-run sequence'; return; }
-  resetAll(); auto.on = true; e.target.textContent = 'Stop auto-run';
+  resetAll(); auto.on = true; e.target.textContent = 'Stop auto-run'; setPaused(false);
 };
 
 /* ---------- §6 HUD ---------- */
@@ -514,8 +541,9 @@ const clock = new THREE.Clock();
 avatar.position.copy(R(viewer.x, viewer.y, viewer.z));
 function animate(){
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  runAuto(); step(dt); updateSoldier(dt); updateSlice(); updateSteps(); updateCamera(); updateHUD(dt); drawMini();
+  const dt = Math.min(clock.getDelta(), 0.05);   // read every frame so resuming never produces a time jump
+  if (!paused){ runAuto(); step(dt); updateSoldier(dt); updateSteps(); }
+  updateSlice(); updateCamera(); updateHUD(dt); drawMini();
   renderer.render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
